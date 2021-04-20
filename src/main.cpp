@@ -1,13 +1,25 @@
-#include <Arduino.h>
-#include <Ethernet.h>
 #include <PubSubClient.h>
-#include <EthernetClient.h>
 
-Ethernet WSA; // WSAStartup
-EthernetClient ethClient;
-IPAddress server(192, 168, 1, 25);
+#include <ESP8266WiFi.h>
+#include <ESP8266HTTPClient.h>
+IPAddress server(172, 17, 0, 4);
 
-#define LED_PIN 3
+#define LED_PIN D4
+
+int trig = 12;
+int echo = 13;
+long lecture_echo;
+long cm;
+const char *ssid = "HUAWEI P20 lite"; //Your WiFI ssid
+const char *password = "a1234567";    //Your WiFi password
+
+const char *mqttServer = "172.17.0.4";
+const int mqttPort = 1883;
+const char *mqttUser = "admin";
+const char *mqttPassword = "admin";
+
+WiFiClient espClient;
+PubSubClient client(espClient);
 
 String payloadToString(byte *payload, unsigned int length)
 {
@@ -18,27 +30,63 @@ String payloadToString(byte *payload, unsigned int length)
 
 void callback(char *topic, byte *payload, unsigned int length)
 {
-
   String message = payloadToString(payload, length);
-  if(message.equals("Coucou"))
+  if (message.equals("on"))
   {
-    Serial.println(message);
+    digitalWrite(LED_PIN, LOW);
+  }
+  else if (message.equals("off"))
+  {
     digitalWrite(LED_PIN, HIGH);
   }
 }
 
-PubSubClient mqtt(server, 1883, callback, ethClient);
+PubSubClient mqtt(server, 1883, callback, espClient);
 
-void setup () {
-  Serial.begin(115200);
+void setup()
+{
+  Serial.begin(9600);
+
+  //capteur de distance
+  pinMode(trig, OUTPUT);
+  digitalWrite(trig, LOW);
+  pinMode(echo, INPUT);
+
   pinMode(LED_PIN, OUTPUT);
 
+  WiFi.begin(ssid, password);
 
-  pinMode(10, INPUT);
+  while (WiFi.status() != WL_CONNECTED)
+  {
+    delay(500);
+    Serial.println("Connecting to WiFi..");
+  }
+  Serial.println("Connected to the WiFi network");
 
-  //Pre
-  digitalWrite(10, 80);
-  analogWrite(0, 80);
+  client.setServer(mqttServer, mqttPort);
+  client.setCallback(callback);
+
+  while (!client.connected())
+  {
+    Serial.println("Connecting to MQTT...");
+
+    if (client.connect("ESP8266Client", mqttUser, mqttPassword))
+    {
+
+      Serial.println("connected");
+      if (client.subscribe("capteur/led"))
+      {
+        Serial.println("subscribed to the capteur/led");
+      }
+    }
+    else
+    {
+
+      Serial.print("failed with state ");
+      Serial.println(client.state());
+      delay(2000);
+    }
+  }
 }
 
 void reconnect()
@@ -61,13 +109,17 @@ void reconnect()
   }
 }
 
-void loop() {
-  if (!mqtt.connected())
-  {
-    reconnect();
-  }
-  mqtt.loop();
-
-  int test = digitalRead(10);
-  Serial.println(test);
+void loop()
+{
+  digitalWrite(trig, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(trig, LOW);
+  lecture_echo = pulseIn(echo, HIGH);
+  cm = lecture_echo / 58;
+  Serial.print("Distance en cm :");
+  Serial.println(cm);
+  client.publish("capteur/distance", String(cm).c_str(), true); //Publie la température sur le topic temperature_topic
+  Serial.println("pushed on the client with success");
+  delay(1000);
+  client.loop();
 }
