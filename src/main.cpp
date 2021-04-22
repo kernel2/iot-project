@@ -31,31 +31,66 @@ String payloadToString(byte *payload, unsigned int length)
   return String(buffer);
 }
 
-
-void callback(char *topicChar, byte *payload, unsigned int length)
+void switchLed(bool on)
 {
-  String message = payloadToString(payload, length);
+  if(on)
+  {
+    digitalWrite(LED_PIN, HIGH);
+    digitalWrite(BUZZER_PIN, HIGH);
+  }
+  else
+  {
+    digitalWrite(LED_PIN, LOW);
+    digitalWrite(BUZZER_PIN, LOW);
+  }
+  if(!mqttClient.publish("capteur/LedPower", String(on).c_str()) || !mqttClient.publish("capteur/BuzzerPower", String(on).c_str()))
+  {
+    Serial.println("Unable to publish led state value..");
+  }
+}
+
+void actionCallback(char * topicChar, byte* payloadByte, unsigned int length)
+{
+  Serial.println("New message received");
   String topic = String(topicChar);
-  if(!topic.equals("captureLED")){
+  String payload = payloadToString(payloadByte, length);
+
+  Serial.print("Topic: ");
+  Serial.println(topic);
+
+  Serial.print("Payload: ");
+  Serial.println(payload);
+
+  if(!topic.equals("capteur"))
+  {
     return;
-  } else if(topic.equals("captureLED")){
-        if (message.equals("on"))
-        {
-          digitalWrite(LED_PIN, HIGH);
-          digitalWrite(BUZZER_PIN, HIGH);
-        } else if (message.equals("off")) {
-          digitalWrite(LED_PIN, LOW);
-          digitalWrite(BUZZER_PIN, LOW);
-        } 
-    }
+  }
+
+  if(payload.equalsIgnoreCase("on"))
+  {
+    switchLed(true);
+  }
+  else if(payload.equalsIgnoreCase("off"))
+  {
+    switchLed(false);
+  }
 }
 
 void setupMqttClient() {
   mqttClient.setClient(ethClient);
   mqttClient.setServer(clientServer,clientPort);
-  mqttClient.setCallback(callback);
+  mqttClient.setCallback(actionCallback);
 }
 
+
+void subscribActionTopic(){
+  if(!mqttClient.subscribe("capteur/LedPower") || !mqttClient.subscribe("capteur/BuzzerPower") )
+    {
+      Serial.println("Topic action subscribe error");
+      return;
+    }
+  Serial.println("Topic led action subscribe success");
+}
 
 void setup()
 {
@@ -76,14 +111,11 @@ void setup()
   {
     Serial.println("Connecting to MQTT client...");
 
-    if (mqttClient.connect("captureMqtt", clientUser, clientPassword))
+    if (mqttClient.connect("capteurMqtt", clientUser, clientPassword))
     {
 
-      Serial.println("connected");
-      if (mqttClient.subscribe("capteur/distance"))
-      {
-        Serial.println("subscribed to the capteur/distance");
-      }
+      Serial.println("connected success");
+      subscribActionTopic();
     }
     else
     {
@@ -95,7 +127,6 @@ void setup()
   }
 }
 
-
 void publishDistance(){
   //time_echo = pulseIn(ECHO_PIN, HIGH, 1000);
   // distance en random
@@ -105,41 +136,12 @@ void publishDistance(){
 
   mqttClient.publish("capteur/distance", String(distance).c_str());
   Serial.println("pushed on the client with success");
-  if(distance <= 50){
-    digitalWrite(LED_PIN, HIGH);
-    digitalWrite(BUZZER_PIN, HIGH);
-    mqttClient.publish("captureLED/ledStateTopic", String("on").c_str());
-    mqttClient.publish("captureLED/buzzerStateTopic", String("on").c_str());
-  }else {
-    digitalWrite(LED_PIN, LOW);
-    digitalWrite(BUZZER_PIN, LOW);
-    mqttClient.publish("captureLED/ledStateTopic", String("off").c_str());
-    mqttClient.publish("captureLED/buzzerStateTopic", String("off").c_str());
-  }
-  if(distance > 50 || distance <= 0){
-    mqttClient.publish("captureOutRange/StateTopic", String("OutOfRangeDistance").c_str());
-    Serial.println("Out of distance");
-    Serial.print(distance);
-    Serial.println(" cm");
-  }else {
-    Serial.print(distance);
-    Serial.println(" cm");
-  }  
 }
 
-void subscribeDistance(){
-  mqttClient.subscribe("capteur/distance");
-  Serial.println("subscribe Distance in Capture topic");
-}
 
 void loop()
 {
-  digitalWrite(TRIG_PIN, HIGH);
-  delay(10);
-  digitalWrite(TRIG_PIN, LOW);
-  
   publishDistance();  
   delay(5000);
-  subscribeDistance();
   mqttClient.loop();
 }
